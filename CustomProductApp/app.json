@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "CustomProduct",
+    "slug": "custom-product-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "customproduct",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6C3CE1"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.customproduct.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#6C3CE1"
+      },
+      "package": "com.customproduct.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-image-picker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
