@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel Villanyszerelő – Árajánlat Kalkulátor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --blue-dark: #0f2044;
+      --blue-mid:  #1a3a6e;
+      --yellow:    #f5c518;
+      --green:     #22c55e;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f4fb; }
+
+    /* Step indicator */
+    .step-dot { transition: all .3s; }
+    .step-dot.active  { background: var(--yellow); color: #0f2044; }
+    .step-dot.done    { background: var(--green);  color: #fff; }
+    .step-dot.pending { background: #d1d5db; color: #6b7280; }
+
+    /* Card selection */
+    .apt-card { cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .2s; border: 3px solid transparent; }
+    .apt-card:hover  { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(15,32,68,.18); }
+    .apt-card.selected { border-color: var(--yellow); box-shadow: 0 0 0 4px rgba(245,197,24,.25); }
+
+    /* Sticky price bar */
+    #price-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+      background: var(--blue-dark); color: #fff;
+      box-shadow: 0 -4px 24px rgba(15,32,68,.4); }
+
+    /* Toggle switch */
+    .toggle-track { width: 48px; height: 26px; border-radius: 9999px; background: #d1d5db;
+      position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0; }
+    .toggle-track.on { background: var(--green); }
+    .toggle-thumb { width: 20px; height: 20px; border-radius: 9999px; background: #fff;
+      position: absolute; top: 3px; left: 3px; transition: left .2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+    .toggle-track.on .toggle-thumb { left: 25px; }
+
+    /* Range slider */
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 6px;
+      border-radius: 3px; background: #d1d5db; outline: none; width: 100%; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+      width: 22px; height: 22px; border-radius: 50%; background: var(--yellow);
+      cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.2); border: 2px solid #fff; }
+    input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%;
+      background: var(--yellow); cursor: pointer; border: 2px solid #fff; }
+
+    /* Booking modal */
+    #booking-modal { display: none; }
+    #booking-modal.open { display: flex; }
+
+    /* Number animation */
+    .price-num { font-variant-numeric: tabular-nums; }
+
+    /* Smooth scroll */
+    html { scroll-behavior: smooth; }
+
+    @media (max-width: 640px) {
+      #price-bar .price-label { font-size: .7rem; }
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-44">
+
+<!-- ===== HEADER ===== -->
+<header style="background: var(--blue-dark);" class="text-white py-4 px-4 md:px-8 shadow-lg sticky top-0 z-40">
+  <div class="max-w-5xl mx-auto flex items-center gap-3">
+    <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
+         style="background: var(--yellow); color: var(--blue-dark);">⚡</div>
+    <div>
+      <h1 class="text-lg md:text-xl font-bold leading-tight">Panel Villanyszerelő</h1>
+      <p class="text-xs text-blue-200">Árajánlat Kalkulátor &amp; Időpontfoglaló</p>
+    </div>
+  </div>
+</header>
+
+<!-- ===== STEP INDICATOR ===== -->
+<div class="max-w-5xl mx-auto mt-6 px-4">
+  <div class="flex items-center gap-0 md:gap-2">
+    <template id="step-tpl"><!-- js generates --></template>
+    <div id="step-indicators" class="flex w-full items-center"></div>
+  </div>
+</div>
+
+<!-- ===== MAIN CONTENT ===== -->
+<main class="max-w-5xl mx-auto px-4 mt-8 space-y-12" id="main-content">
+
+  <!-- STEP 1 -->
+  <section id="step-1">
+    <h2 class="text-2xl font-bold mb-1" style="color: var(--blue-dark);">1. Válassza ki a lakástípust</h2>
+    <p class="text-gray-500 text-sm mb-6">Kattintson a panellakás alaprajzára az elinduláshoz.</p>
+    <div id="apt-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-6"></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section id="step-2" class="hidden">
+    <h2 class="text-2xl font-bold mb-1" style="color: var(--blue-dark);">2. Szobánkénti beállítások</h2>
+    <p class="text-gray-500 text-sm mb-6">Állítsa be a kívánt paramétereket szobánként. Az ár valós időben frissül.</p>
+    <div id="rooms-container" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+    <div class="mt-8 flex justify-end">
+      <button onclick="goToStep(3)"
+        class="px-8 py-3 rounded-xl font-bold text-lg shadow-lg transition hover:opacity-90 active:scale-95"
+        style="background: var(--yellow); color: var(--blue-dark);">
+        Tovább az összesítőhöz →
+      </button>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section id="step-3" class="hidden">
+    <h2 class="text-2xl font-bold mb-1" style="color: var(--blue-dark);">3. Becsült árajánlat</h2>
+    <p class="text-gray-500 text-sm mb-6">Az árak nettó összegek, tájékoztató jellegűek. A pontos ár helyszíni felmérés után adható meg.</p>
+    <div class="rounded-2xl shadow-xl overflow-hidden" style="border: 2px solid var(--blue-dark);">
+      <!-- Header -->
+      <div class="px-6 py-5 text-white" style="background: var(--blue-dark);">
+        <p class="text-sm text-blue-200 uppercase tracking-wider font-semibold mb-1">Nettó Becsült Végösszeg</p>
+        <p id="s3-range-net" class="price-num text-3xl md:text-4xl font-bold text-white tracking-tight">– Ft</p>
+        <p id="s3-range-gross" class="price-num text-base text-blue-300 mt-1">– Ft bruttó (ÁFÁ-val)</p>
+      </div>
+      <!-- Breakdown table -->
+      <div class="bg-white px-6 py-5 space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+          <span class="text-sm text-gray-600">Munkadíj (nettó)</span>
+          <span id="s3-labor" class="price-num font-semibold text-gray-800">– Ft</span>
+        </div>
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+          <span class="text-sm text-gray-600">Durva szerelési anyag (nettó)</span>
+          <span id="s3-material" class="price-num font-semibold text-gray-800">– Ft</span>
+        </div>
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+          <span class="text-sm text-gray-600">Statikai szakvélemény (fix)</span>
+          <span class="price-num font-semibold text-gray-800">70 000 Ft</span>
+        </div>
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+          <span class="text-sm text-gray-600 italic">+15% biztonsági sáv felsőhatár</span>
+          <span id="s3-buffer" class="price-num font-semibold text-gray-500 italic">– Ft</span>
+        </div>
+        <div class="flex justify-between items-center pt-1">
+          <span class="text-sm font-bold text-gray-700">Bruttó sáv (27% ÁFA)</span>
+          <span id="s3-gross-detail" class="price-num font-bold text-gray-700">– Ft</span>
+        </div>
+      </div>
+      <!-- Note -->
+      <div class="bg-yellow-50 border-t border-yellow-200 px-6 py-3 flex gap-2 items-start">
+        <span class="text-yellow-500 text-lg mt-0.5">ℹ️</span>
+        <p class="text-sm text-yellow-900">Az ár a <strong>durva szerelési anyagokat</strong> (kábelek, csövek, elosztó) tartalmazza, a <strong>szerelvényeket</strong> (kapcsolók, lámpák) <strong>nem</strong>.</p>
+      </div>
+    </div>
+
+    <!-- Back link + CTA -->
+    <div class="mt-6 flex flex-col sm:flex-row gap-4 items-center justify-between">
+      <button onclick="goToStep(2)" class="text-sm text-gray-500 underline hover:text-gray-800">← Vissza a beállításokhoz</button>
+      <button onclick="openBooking()"
+        class="w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition hover:opacity-90 active:scale-95 text-white"
+        style="background: var(--green);">
+        📅 Időpont foglalása ingyenes helyszíni felmérésre
+      </button>
+    </div>
+  </section>
+
+</main>
+
+<!-- ===== STICKY PRICE BAR ===== -->
+<div id="price-bar" class="hidden">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+    <div>
+      <p class="price-label text-xs text-blue-300 uppercase tracking-wide font-semibold">Becsült nettó összeg</p>
+      <p id="bar-price" class="price-num text-xl md:text-2xl font-bold text-white tracking-tight">– Ft</p>
+    </div>
+    <div class="flex gap-3">
+      <button onclick="goToStep(3)"
+        class="px-5 py-2 rounded-lg font-bold text-sm transition hover:opacity-90 active:scale-95"
+        style="background: var(--yellow); color: var(--blue-dark);">
+        Részletek →
+      </button>
+      <button onclick="openBooking()"
+        class="px-5 py-2 rounded-lg font-bold text-sm text-white transition hover:opacity-90 active:scale-95"
+        style="background: var(--green);">
+        Időpont
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BOOKING MODAL ===== -->
+<div id="booking-modal"
+     class="fixed inset-0 z-50 items-end sm:items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm open"
+     style="display:none;">
+  <div class="w-full sm:max-w-xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-screen overflow-y-auto" id="booking-panel">
+    <div class="px-6 pt-6 pb-2 flex items-center justify-between sticky top-0 bg-white border-b border-gray-100 z-10">
+      <h3 class="text-xl font-bold" style="color: var(--blue-dark);">Időpont foglalása</h3>
+      <button onclick="closeBooking()" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+    </div>
+
+    <div class="px-6 py-4 space-y-5">
+      <!-- Summary pill -->
+      <div class="rounded-xl px-4 py-3 text-white text-sm font-medium" style="background: var(--blue-dark);">
+        🔖 Kalkulált ár: <span id="booking-price" class="price-num font-bold">– Ft</span>
+      </div>
+
+      <!-- Form -->
+      <form id="booking-form" onsubmit="submitBooking(event)" class="space-y-4" novalidate>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Teljes név *</label>
+          <input type="text" id="f-name" required placeholder="pl. Kovács János"
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Telefonszám *</label>
+          <input type="tel" id="f-phone" required placeholder="+36 30 123 4567"
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Email cím *</label>
+          <input type="email" id="f-email" required placeholder="pelda@email.hu"
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Város / Cím *</label>
+          <input type="text" id="f-address" required placeholder="pl. Budapest, XIII. ker."
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Megjegyzés (opcionális)</label>
+          <textarea id="f-note" rows="2" placeholder="Egyéb fontos információ..."
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"></textarea>
+        </div>
+
+        <!-- Calendly embed placeholder -->
+        <div class="border border-gray-200 rounded-xl overflow-hidden">
+          <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 text-xs text-gray-500 font-semibold uppercase tracking-wide">
+            Válasszon időpontot
+          </div>
+          <!-- Replace src with your real Calendly link -->
+          <div id="calendly-placeholder" class="bg-gray-50 flex flex-col items-center justify-center py-10 gap-3">
+            <div class="text-5xl">📅</div>
+            <p class="text-sm text-gray-600 text-center max-w-xs">
+              A naptár integrációhoz adja meg a Calendly URL-jét az alkalmazás kódjában
+              (<code class="bg-gray-200 px-1 rounded text-xs">CALENDLY_URL</code> változó).
+            </p>
+            <p class="text-xs text-gray-400 mt-1">Az iframe ide kerül betöltésre.</p>
+          </div>
+          <iframe id="calendly-frame" class="hidden w-full border-0" height="500"
+            src="" title="Időpontfoglaló naptár"></iframe>
+        </div>
+
+        <button type="submit"
+          class="w-full py-3.5 rounded-xl font-bold text-lg shadow-md transition hover:opacity-90 active:scale-95 text-white"
+          style="background: var(--green);">
+          ✅ Foglalás elküldése
+        </button>
+        <p class="text-xs text-gray-400 text-center">Adatait bizalmasan kezeljük, harmadik félnek nem adjuk át.</p>
+      </form>
+
+      <!-- Success state (hidden by default) -->
+      <div id="booking-success" class="hidden text-center py-8 space-y-4">
+        <div class="text-6xl">🎉</div>
+        <h4 class="text-xl font-bold" style="color: var(--blue-dark);">Foglalás rögzítve!</h4>
+        <p class="text-gray-600 text-sm">Hamarosan visszaigazoló emailt küldünk. Villanyszerelőnk felveszi Önnel a kapcsolatot.</p>
+        <div id="summary-box" class="rounded-xl text-left text-sm bg-gray-50 border border-gray-200 p-4 space-y-1"></div>
+        <button onclick="closeBooking()" class="mt-2 px-6 py-2.5 rounded-lg font-bold text-white" style="background: var(--blue-dark);">Bezárás</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================
+   CONFIG
+   ===================================================== */
+const CALENDLY_URL = ''; // ← Helyezze ide a Calendly URL-jét, pl.: 'https://calendly.com/felhasznalonev'
+const STATIC_FEE = 70000; // Statikai szakvélemény fix díja
+
+/* =====================================================
+   APARTMENT TYPES DATA
+   ===================================================== */
+const APT_TYPES = [
+  {
+    id: 'garzon',
+    title: '35 nm · Garzon / 1 szobás',
+    size: '35 nm',
+    tag: 'Garzon',
+    laborBase: 650000,
+    materialBase: 260000,
+    rooms: ['Szoba', 'Konyha', 'Fürdő', 'Előszoba'],
+    svg: `<svg viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" class="w-full h-36">
+      <rect x="2" y="2" width="216" height="176" rx="4" fill="#f8fafc" stroke="#1a3a6e" stroke-width="2"/>
+      <!-- Szoba -->
+      <rect x="10" y="10" width="130" height="100" fill="#e0e7ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="75" y="65" text-anchor="middle" font-size="10" fill="#1a3a6e" font-weight="600">Szoba</text>
+      <!-- Konyha -->
+      <rect x="145" y="10" width="65" height="55" fill="#fef9c3" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="177" y="42" text-anchor="middle" font-size="9" fill="#854d0e" font-weight="600">Konyha</text>
+      <!-- Fürdő -->
+      <rect x="145" y="70" width="65" height="40" fill="#dbeafe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="177" y="95" text-anchor="middle" font-size="9" fill="#1e40af" font-weight="600">Fürdő</text>
+      <!-- Előszoba -->
+      <rect x="10" y="115" width="200" height="55" fill="#f0fdf4" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="110" y="147" text-anchor="middle" font-size="9" fill="#166534" font-weight="600">Előszoba</text>
+      <!-- Door -->
+      <path d="M140 115 Q155 115 155 130" stroke="#1a3a6e" stroke-width="1.5" fill="none"/>
+    </svg>`
+  },
+  {
+    id: 'masfel',
+    title: '46 nm · Másfél szobás',
+    size: '46 nm',
+    tag: 'Másfél szobás',
+    laborBase: 850000,
+    materialBase: 340000,
+    rooms: ['Nagyszoba', 'Kisszoba', 'Konyha', 'Fürdő', 'WC', 'Előszoba'],
+    svg: `<svg viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" class="w-full h-36">
+      <rect x="2" y="2" width="216" height="176" rx="4" fill="#f8fafc" stroke="#1a3a6e" stroke-width="2"/>
+      <!-- Nagyszoba -->
+      <rect x="10" y="10" width="110" height="90" fill="#e0e7ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="65" y="60" text-anchor="middle" font-size="9" fill="#1a3a6e" font-weight="600">Nagyszoba</text>
+      <!-- Kisszoba -->
+      <rect x="125" y="10" width="85" height="55" fill="#ede9fe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="167" y="42" text-anchor="middle" font-size="9" fill="#4c1d95" font-weight="600">Kisszoba</text>
+      <!-- Konyha -->
+      <rect x="10" y="105" width="80" height="65" fill="#fef9c3" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="50" y="142" text-anchor="middle" font-size="9" fill="#854d0e" font-weight="600">Konyha</text>
+      <!-- Fürdő -->
+      <rect x="125" y="70" width="50" height="50" fill="#dbeafe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="150" y="100" text-anchor="middle" font-size="9" fill="#1e40af" font-weight="600">Fürdő</text>
+      <!-- WC -->
+      <rect x="180" y="70" width="30" height="50" fill="#f0fdf4" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="195" y="100" text-anchor="middle" font-size="8" fill="#166534" font-weight="600">WC</text>
+      <!-- Előszoba -->
+      <rect x="95" y="105" width="115" height="65" fill="#fff7ed" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="152" y="142" text-anchor="middle" font-size="8" fill="#92400e" font-weight="600">Előszoba</text>
+    </svg>`
+  },
+  {
+    id: 'larsen',
+    title: '53 nm · 1+2 félszoba (Larsen-Nielsen)',
+    size: '53 nm',
+    tag: 'Larsen-Nielsen',
+    laborBase: 1100000,
+    materialBase: 440000,
+    rooms: ['Nagyszoba', 'Félszoba 1', 'Félszoba 2', 'Konyha', 'Fürdő', 'WC', 'Előszoba'],
+    svg: `<svg viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" class="w-full h-36">
+      <rect x="2" y="2" width="216" height="176" rx="4" fill="#f8fafc" stroke="#1a3a6e" stroke-width="2"/>
+      <!-- Nagyszoba -->
+      <rect x="10" y="10" width="90" height="80" fill="#e0e7ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="55" y="55" text-anchor="middle" font-size="9" fill="#1a3a6e" font-weight="600">Nagyszoba</text>
+      <!-- Félszoba 1 -->
+      <rect x="105" y="10" width="55" height="80" fill="#ede9fe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="132" y="50" text-anchor="middle" font-size="8" fill="#4c1d95" font-weight="600">Félszoba 1</text>
+      <!-- Félszoba 2 -->
+      <rect x="165" y="10" width="45" height="80" fill="#fae8ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="187" y="50" text-anchor="middle" font-size="8" fill="#86198f" font-weight="600">Félszoba 2</text>
+      <!-- Konyha -->
+      <rect x="10" y="95" width="75" height="75" fill="#fef9c3" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="47" y="137" text-anchor="middle" font-size="9" fill="#854d0e" font-weight="600">Konyha</text>
+      <!-- Fürdő -->
+      <rect x="90" y="95" width="55" height="45" fill="#dbeafe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="117" y="122" text-anchor="middle" font-size="9" fill="#1e40af" font-weight="600">Fürdő</text>
+      <!-- WC -->
+      <rect x="90" y="143" width="55" height="27" fill="#f0fdf4" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="117" y="161" text-anchor="middle" font-size="8" fill="#166534" font-weight="600">WC</text>
+      <!-- Előszoba -->
+      <rect x="150" y="95" width="60" height="75" fill="#fff7ed" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="180" y="137" text-anchor="middle" font-size="8" fill="#92400e" font-weight="600">Előszoba</text>
+    </svg>`
+  },
+  {
+    id: 'haromszobas',
+    title: '68 nm · 3 szobás (Budapesti étkezős)',
+    size: '68 nm',
+    tag: '3 szobás',
+    laborBase: 1450000,
+    materialBase: 580000,
+    rooms: ['Nappali', 'Szoba 1', 'Szoba 2', 'Konyha', 'Étkező', 'Fürdő', 'WC', 'Előszoba'],
+    svg: `<svg viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" class="w-full h-36">
+      <rect x="2" y="2" width="216" height="176" rx="4" fill="#f8fafc" stroke="#1a3a6e" stroke-width="2"/>
+      <!-- Nappali -->
+      <rect x="10" y="10" width="95" height="75" fill="#e0e7ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="57" y="52" text-anchor="middle" font-size="9" fill="#1a3a6e" font-weight="600">Nappali</text>
+      <!-- Szoba 1 -->
+      <rect x="110" y="10" width="50" height="75" fill="#ede9fe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="135" y="52" text-anchor="middle" font-size="8" fill="#4c1d95" font-weight="600">Szoba 1</text>
+      <!-- Szoba 2 -->
+      <rect x="165" y="10" width="45" height="75" fill="#fae8ff" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="187" y="52" text-anchor="middle" font-size="8" fill="#86198f" font-weight="600">Szoba 2</text>
+      <!-- Konyha -->
+      <rect x="10" y="90" width="60" height="80" fill="#fef9c3" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="40" y="134" text-anchor="middle" font-size="9" fill="#854d0e" font-weight="600">Konyha</text>
+      <!-- Étkező -->
+      <rect x="75" y="90" width="55" height="80" fill="#fff7ed" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="102" y="134" text-anchor="middle" font-size="8" fill="#92400e" font-weight="600">Étkező</text>
+      <!-- Fürdő -->
+      <rect x="135" y="90" width="40" height="50" fill="#dbeafe" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="155" y="119" text-anchor="middle" font-size="8" fill="#1e40af" font-weight="600">Fürdő</text>
+      <!-- WC -->
+      <rect x="135" y="143" width="40" height="27" fill="#f0fdf4" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="155" y="161" text-anchor="middle" font-size="8" fill="#166534" font-weight="600">WC</text>
+      <!-- Előszoba -->
+      <rect x="180" y="90" width="30" height="80" fill="#f1f5f9" stroke="#1a3a6e" stroke-width="1.5"/>
+      <text x="195" y="134" text-anchor="middle" font-size="7" fill="#475569" font-weight="600">Elő-szoba</text>
+    </svg>`
+  }
+];
+
+/* =====================================================
+   STATE
+   ===================================================== */
+let state = {
+  selectedApt: null,
+  rooms: [], // [{name, points, ac, ceiling, stove(konyha only)}]
+  currentStep: 1,
+};
+
+/* =====================================================
+   HELPERS
+   ===================================================== */
+function fmt(n) {
+  return new Intl.NumberFormat('hu-HU').format(Math.round(n)) + ' Ft';
+}
+function fmtRange(lo, hi) {
+  return new Intl.NumberFormat('hu-HU').format(Math.round(lo)) + ' – ' +
+         new Intl.NumberFormat('hu-HU').format(Math.round(hi)) + ' Ft';
+}
+
+/* =====================================================
+   CALCULATE
+   ===================================================== */
+function calculate() {
+  if (!state.selectedApt) return null;
+  const apt = state.selectedApt;
+
+  let extraLabor = 0, extraMaterial = 0;
+  let ceilingSaving = 0;
+
+  for (const room of state.rooms) {
+    const extraPoints = Math.max(0, room.points - 4);
+    // Base extra per point
+    const roomPointLabor    = extraPoints * 15000;
+    const roomPointMaterial = extraPoints * 5000;
+
+    // Ceiling discount on this room's point labor (base + extra)
+    let ceilingDiscount = 0;
+    if (room.ceiling) {
+      // Applies to ALL points' labor for this room (including baseline 4 points equivalent)
+      // Spec: -15% a szoba kiállási pontjainak munkadíjából
+      const totalPointLabor = room.points * 15000; // full points-based labor
+      ceilingDiscount = totalPointLabor * 0.15;
+      ceilingSaving += ceilingDiscount;
+    }
+
+    extraLabor    += roomPointLabor;
+    extraMaterial += roomPointMaterial;
+
+    if (room.ac) {
+      extraLabor    += 45000;
+      extraMaterial += 15000;
+    }
+    if (room.stove) {
+      extraLabor    += 85000;
+      extraMaterial += 30000;
+    }
+
+    extraLabor -= ceilingDiscount;
+  }
+
+  const totalLabor    = apt.laborBase    + extraLabor;
+  const totalMaterial = apt.materialBase + extraMaterial;
+  const netLow  = totalLabor + totalMaterial + STATIC_FEE;
+  const netHigh = netLow * 1.15;
+  const grossLow  = netLow  * 1.27;
+  const grossHigh = netHigh * 1.27;
+
+  return { totalLabor, totalMaterial, netLow, netHigh, grossLow, grossHigh };
+}
+
+/* =====================================================
+   UPDATE PRICE DISPLAYS
+   ===================================================== */
+function refreshPrices() {
+  const calc = calculate();
+  if (!calc) return;
+
+  const { totalLabor, totalMaterial, netLow, netHigh, grossLow, grossHigh } = calc;
+
+  // Sticky bar
+  document.getElementById('bar-price').textContent = fmtRange(netLow, netHigh);
+
+  // Step 3 detail
+  document.getElementById('s3-range-net').textContent  = fmtRange(netLow, netHigh) + ' nettó';
+  document.getElementById('s3-range-gross').textContent = fmtRange(grossLow, grossHigh) + ' bruttó';
+  document.getElementById('s3-labor').textContent       = fmt(totalLabor);
+  document.getElementById('s3-material').textContent    = fmt(totalMaterial);
+  document.getElementById('s3-buffer').textContent      = '+' + fmt(netHigh - netLow);
+  document.getElementById('s3-gross-detail').textContent = fmtRange(grossLow, grossHigh);
+
+  // Booking modal
+  document.getElementById('booking-price').textContent = fmtRange(netLow, netHigh) + ' nettó';
+}
+
+/* =====================================================
+   STEP INDICATOR
+   ===================================================== */
+const STEPS = ['Lakástípus', 'Szobák', 'Kalkuláció', 'Foglalás'];
+
+function renderSteps() {
+  const container = document.getElementById('step-indicators');
+  container.innerHTML = '';
+  STEPS.forEach((label, i) => {
+    const num = i + 1;
+    let cls = 'pending';
+    if (num < state.currentStep) cls = 'done';
+    if (num === state.currentStep) cls = 'active';
+
+    const dot = document.createElement('div');
+    dot.className = 'step-dot flex flex-col items-center gap-1 flex-1 cursor-pointer';
+    dot.innerHTML = `
+      <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm step-dot ${cls}">
+        ${cls === 'done' ? '✓' : num}
+      </div>
+      <span class="text-xs font-medium ${cls === 'active' ? 'text-yellow-600' : cls === 'done' ? 'text-green-600' : 'text-gray-400'} hidden sm:block">${label}</span>
+    `;
+    if (num < state.currentStep) {
+      dot.onclick = () => goToStep(num);
+    }
+
+    container.appendChild(dot);
+
+    if (i < STEPS.length - 1) {
+      const line = document.createElement('div');
+      line.className = `h-0.5 flex-1 mt-4 ${num < state.currentStep ? 'bg-green-400' : 'bg-gray-200'}`;
+      container.appendChild(line);
+    }
+  });
+}
+
+/* =====================================================
+   GO TO STEP
+   ===================================================== */
+function goToStep(n) {
+  state.currentStep = n;
+  document.querySelectorAll('section[id^="step-"]').forEach(s => s.classList.add('hidden'));
+  document.getElementById(`step-${n}`)?.classList.remove('hidden');
+
+  const priceBar = document.getElementById('price-bar');
+  if (n >= 2) {
+    priceBar.classList.remove('hidden');
+    refreshPrices();
+  } else {
+    priceBar.classList.add('hidden');
+  }
+
+  renderSteps();
+  setTimeout(() => {
+    document.getElementById(`step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 80);
+}
+
+/* =====================================================
+   STEP 1 – APT TYPE GRID
+   ===================================================== */
+function renderAptGrid() {
+  const grid = document.getElementById('apt-grid');
+  grid.innerHTML = '';
+
+  APT_TYPES.forEach(apt => {
+    const card = document.createElement('div');
+    card.className = 'apt-card bg-white rounded-2xl shadow-md overflow-hidden';
+    card.dataset.id = apt.id;
+    card.innerHTML = `
+      <div class="p-4 bg-gradient-to-br from-slate-50 to-blue-50">
+        ${apt.svg}
+      </div>
+      <div class="px-5 py-4 border-t border-gray-100">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full text-white" style="background:var(--blue-mid)">${apt.tag}</span>
+          <span class="text-xs text-gray-400">${apt.size}</span>
+        </div>
+        <h3 class="font-bold text-gray-800 text-sm leading-snug mb-2">${apt.title}</h3>
+        <div class="flex gap-4 text-xs text-gray-500">
+          <span>💼 Munkadíjtól: <strong class="text-gray-700">${(apt.laborBase/1000).toFixed(0)}k Ft</strong></span>
+          <span>🧱 Anyagtól: <strong class="text-gray-700">${(apt.materialBase/1000).toFixed(0)}k Ft</strong></span>
+        </div>
+      </div>
+    `;
+    card.addEventListener('click', () => selectApt(apt));
+    grid.appendChild(card);
+  });
+}
+
+function selectApt(apt) {
+  state.selectedApt = apt;
+  // Init rooms
+  state.rooms = apt.rooms.map(name => ({
+    name,
+    points: 4,
+    ac: false,
+    ceiling: false,
+    stove: false,
+  }));
+
+  // Visual
+  document.querySelectorAll('.apt-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.apt-card[data-id="${apt.id}"]`)?.classList.add('selected');
+
+  renderRooms();
+  goToStep(2);
+}
+
+/* =====================================================
+   STEP 2 – ROOM CARDS
+   ===================================================== */
+const ROOM_ICONS = {
+  'Szoba': '🛏️', 'Nagyszoba': '🛋️', 'Kisszoba': '🪑', 'Nappali': '🛋️',
+  'Félszoba 1': '🪑', 'Félszoba 2': '🪑', 'Szoba 1': '🛏️', 'Szoba 2': '🛏️',
+  'Konyha': '🍳', 'Étkező': '🍽️', 'Fürdő': '🚿', 'WC': '🚽',
+  'Előszoba': '🚪'
+};
+
+function createToggle(id, initialValue, onChange) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'flex items-center gap-3';
+
+  const track = document.createElement('div');
+  track.className = `toggle-track ${initialValue ? 'on' : ''}`;
+  track.id = id;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'toggle-thumb';
+  track.appendChild(thumb);
+
+  let val = initialValue;
+  track.addEventListener('click', () => {
+    val = !val;
+    track.classList.toggle('on', val);
+    onChange(val);
+  });
+
+  wrapper.appendChild(track);
+  return { wrapper, track };
+}
+
+function renderRooms() {
+  const container = document.getElementById('rooms-container');
+  container.innerHTML = '';
+
+  state.rooms.forEach((room, idx) => {
+    const isKitchen = room.name === 'Konyha';
+    const icon = ROOM_ICONS[room.name] || '🏠';
+
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-2xl shadow-md overflow-hidden border border-gray-100';
+    card.innerHTML = `
+      <div class="px-5 py-4 flex items-center gap-2 border-b border-gray-100" style="background: linear-gradient(135deg,#f0f4fb,#e0e7ff);">
+        <span class="text-2xl">${icon}</span>
+        <h4 class="font-bold text-base" style="color:var(--blue-dark)">${room.name}</h4>
+      </div>
+      <div class="px-5 py-4 space-y-5">
+
+        <!-- Slider -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-sm font-semibold text-gray-700">Kiállási pontok</label>
+            <span id="pts-val-${idx}" class="text-sm font-bold px-2.5 py-0.5 rounded-full text-white" style="background:var(--blue-mid)">${room.points} db</span>
+          </div>
+          <input type="range" id="pts-${idx}" min="2" max="15" value="${room.points}"
+            class="w-full accent-yellow-400" />
+          <div class="flex justify-between text-xs text-gray-400 mt-1">
+            <span>2 db (min)</span><span>15 db (max)</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Alap 4 pont felett: +15 000 Ft/pont munkadíj, +5 000 Ft/pont anyag</p>
+        </div>
+
+        <!-- AC toggle -->
+        <div id="ac-row-${idx}" class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-semibold text-gray-700">❄️ Klíma betáp</p>
+            <p class="text-xs text-gray-400">+45 000 Ft munkadíj, +15 000 Ft anyag</p>
+          </div>
+          <div id="ac-toggle-${idx}"></div>
+        </div>
+
+        <!-- Ceiling toggle -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-semibold text-gray-700">🔲 Álmennyezet lesz</p>
+            <p class="text-xs text-gray-400">-15% kedvezmény a kiállási pontok munkadíjából</p>
+          </div>
+          <div id="ceil-toggle-${idx}"></div>
+        </div>
+
+        ${isKitchen ? `
+        <!-- Stove toggle (kitchen only) -->
+        <div class="rounded-xl border-2 border-yellow-300 bg-yellow-50 px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-bold text-yellow-900">🔌 Elektromos tűzhelyre váltás gázról</p>
+            <p class="text-xs text-yellow-700">3 fázisú betáp · +85 000 Ft munkadíj, +30 000 Ft anyag</p>
+          </div>
+          <div id="stove-toggle-${idx}"></div>
+        </div>
+        ` : ''}
+
+      </div>
+    `;
+
+    container.appendChild(card);
+
+    // Slider
+    const slider = card.querySelector(`#pts-${idx}`);
+    const ptsVal = card.querySelector(`#pts-val-${idx}`);
+    slider.addEventListener('input', () => {
+      state.rooms[idx].points = parseInt(slider.value);
+      ptsVal.textContent = slider.value + ' db';
+      refreshPrices();
+    });
+
+    // AC toggle
+    const acContainer = card.querySelector(`#ac-toggle-${idx}`);
+    const { wrapper: acW } = createToggle(`ac-t-${idx}`, room.ac, val => {
+      state.rooms[idx].ac = val;
+      refreshPrices();
+    });
+    acContainer.appendChild(acW);
+
+    // Ceiling toggle
+    const ceilContainer = card.querySelector(`#ceil-toggle-${idx}`);
+    const { wrapper: ceilW } = createToggle(`ceil-t-${idx}`, room.ceiling, val => {
+      state.rooms[idx].ceiling = val;
+      refreshPrices();
+    });
+    ceilContainer.appendChild(ceilW);
+
+    // Stove toggle (kitchen only)
+    if (isKitchen) {
+      const stoveContainer = card.querySelector(`#stove-toggle-${idx}`);
+      const { wrapper: stoveW } = createToggle(`stove-t-${idx}`, room.stove, val => {
+        state.rooms[idx].stove = val;
+        refreshPrices();
+      });
+      stoveContainer.appendChild(stoveW);
+    }
+  });
+}
+
+/* =====================================================
+   BOOKING MODAL
+   ===================================================== */
+function openBooking() {
+  const modal = document.getElementById('booking-modal');
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  refreshPrices();
+
+  // Load Calendly if URL configured
+  if (CALENDLY_URL) {
+    const frame = document.getElementById('calendly-frame');
+    const placeholder = document.getElementById('calendly-placeholder');
+    if (frame.src !== CALENDLY_URL) frame.src = CALENDLY_URL;
+    frame.classList.remove('hidden');
+    placeholder.classList.add('hidden');
+  }
+
+  // Reset form state
+  document.getElementById('booking-form').classList.remove('hidden');
+  document.getElementById('booking-success').classList.add('hidden');
+}
+
+function closeBooking() {
+  document.getElementById('booking-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// Close on backdrop click
+document.getElementById('booking-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('booking-modal')) closeBooking();
+});
+
+/* =====================================================
+   FORM SUBMIT (Email simulation)
+   ===================================================== */
+function submitBooking(e) {
+  e.preventDefault();
+  const form = document.getElementById('booking-form');
+
+  const name    = document.getElementById('f-name').value.trim();
+  const phone   = document.getElementById('f-phone').value.trim();
+  const email   = document.getElementById('f-email').value.trim();
+  const address = document.getElementById('f-address').value.trim();
+  const note    = document.getElementById('f-note').value.trim();
+
+  // Basic validation
+  const inputs = form.querySelectorAll('[required]');
+  let valid = true;
+  inputs.forEach(inp => {
+    inp.classList.remove('border-red-400');
+    if (!inp.value.trim()) {
+      inp.classList.add('border-red-400');
+      valid = false;
+    }
+  });
+  if (!valid) return;
+
+  const calc = calculate();
+  const { netLow, netHigh } = calc;
+  const apt = state.selectedApt;
+
+  // Build summary
+  const summaryEl = document.getElementById('summary-box');
+  summaryEl.innerHTML = `
+    <div class="font-semibold text-gray-700 mb-2">Foglalás összefoglalója</div>
+    <div class="text-gray-600"><span class="text-gray-400">Ügyfél:</span> ${name}</div>
+    <div class="text-gray-600"><span class="text-gray-400">Telefon:</span> ${phone}</div>
+    <div class="text-gray-600"><span class="text-gray-400">Email:</span> ${email}</div>
+    <div class="text-gray-600"><span class="text-gray-400">Cím:</span> ${address}</div>
+    <div class="text-gray-600"><span class="text-gray-400">Lakástípus:</span> ${apt.title}</div>
+    <div class="text-gray-600"><span class="text-gray-400">Becsült ár (nettó):</span> <strong>${fmtRange(netLow, netHigh)}</strong></div>
+    ${note ? `<div class="text-gray-600"><span class="text-gray-400">Megjegyzés:</span> ${note}</div>` : ''}
+  `;
+
+  // Build mailto link (fallback for email sending without backend)
+  const aptRooms = state.rooms.map(r =>
+    `  • ${r.name}: ${r.points} pont${r.ac ? ', klíma betáp' : ''}${r.ceiling ? ', álmennyezet' : ''}${r.stove ? ', elektromos tűzhely' : ''}`
+  ).join('\n');
+
+  const mailBody = encodeURIComponent(
+`Új árajánlat-kérés és időpontfoglalás!
+
+Ügyfél adatai:
+  Név: ${name}
+  Telefon: ${phone}
+  Email: ${email}
+  Cím/Város: ${address}
+
+Lakástípus: ${apt.title}
+
+Szobák konfigurációja:
+${aptRooms}
+
+Becsült ár (nettó): ${fmtRange(netLow, netHigh)}
+Becsült ár (bruttó, 27% ÁFA): ${fmtRange(netLow * 1.27, netHigh * 1.27)}
+
+${note ? 'Megjegyzés: ' + note : ''}
+
+---
+Generálva: Panel Villanyszerelő Kalkulátor`
+  );
+
+  const mailSubject = encodeURIComponent(`Árajánlat-kérés: ${name} – ${apt.title}`);
+
+  // Open mailto (in real deployment, replace with API call)
+  const ELECTRICIAN_EMAIL = 'villanyszerelo@example.hu'; // ← Cserélje ki valós email-re
+  window.open(`mailto:${ELECTRICIAN_EMAIL}?subject=${mailSubject}&body=${mailBody}`, '_blank');
+
+  // Show success
+  form.classList.add('hidden');
+  document.getElementById('booking-success').classList.remove('hidden');
+  goToStep(4);
+}
+
+/* =====================================================
+   INIT
+   ===================================================== */
+renderAptGrid();
+renderSteps();
+goToStep(1);
+</script>
+</body>
+</html>
